@@ -124,22 +124,18 @@ class ANIPotentialImpl(MLPotentialImpl):
                 else:
                     self.pbc = None
 
-            def forward(self, positions, boxvectors: Optional[torch.Tensor] = None, scale : Optional[torch.Tensor] = None):
+            def forward(self, positions, boxvectors: Optional[torch.Tensor] = None):
                 positions = positions.to(torch.float32)
                 #print(f"(boxvectors, scale): {boxvectors, scale}")
                 if self.indices is not None:
                     positions = positions[self.indices]
-                if boxvectors is None or self.pbc is None:
+                if boxvectors is None:
                     _, energy = self.model((self.species, 10.0*positions.unsqueeze(0)))
                 else:
                     boxvectors = boxvectors.to(torch.float32)
                     _, energy = self.model((self.species, 10.0*positions.unsqueeze(0)), cell=10.0*boxvectors, pbc=self.pbc)
 
-                if scale is None:
-                    in_scale = torch.ones(1).to(positions.device) # place on appropriate device
-                else:
-                    in_scale = scale
-                return self.energyScale*energy*in_scale
+                return self.energyScale*energy
 
         # is_periodic...
         is_periodic = (topology.getPeriodicBoxVectors() is not None) or system.usesPeriodicBoundaryConditions()
@@ -161,7 +157,6 @@ class ANIPotentialImpl(MLPotentialImpl):
             print(f"using pbcs...")
         else:
             print(f"omitting pbcs since the querying the topology and system gave is_periodic={is_periodic}")
-        force.addGlobalParameter('scale', 1.)
         system.addForce(force)
 
 MLPotential.registerImplFactory('ani1ccx', ANIPotentialImplFactory())
