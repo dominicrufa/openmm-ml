@@ -88,8 +88,9 @@ class ANIPotentialImpl(MLPotentialImpl):
         species = torch.tensor([[atom.element.atomic_number for atom in includedAtoms]])
         if implementation == 'nnpops':
             try:
-                from NNPOps import OptimizedTorchANI
-                model = OptimizedTorchANI(model, species)
+                #from NNPOps import OptimizedTorchANI
+                from openmmml.models.nnpops import ModOptimizedTorchANI 
+                model = ModOptimizedTorchANI(model, species)
             except Exception as e:
                 print(f"failed to equip `nnpops` with error: {e}")
         elif implementation == "torchani":
