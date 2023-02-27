@@ -185,6 +185,7 @@ class MLPotential(object):
                           removeConstraints: bool = True,
                           forceGroup: int = 0,
                           interpolate: bool = False,
+                          add_restraints: bool = True,
                           **args) -> openmm.System:
         """Create a System that is partly modeled with this potential and partly
         with a conventional force field.
@@ -267,6 +268,11 @@ class MLPotential(object):
             self._impl.addForces(topology, newSystem, atomList, forceGroup, **args)
         else:
             # Create a CustomCVForce and put the ML forces inside it.
+            kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
+            kT_high = kB * args.get('T_high', 300.*unit.kelvin)
+            kT_low = kB * args.get('T_low', 300.*unit.kelvin)
+            print(f"T_high: {args.get('T_high', 300.)}; T_low: {args.get('T_low', 300.)}")
+            beta_scale = kT_low / kT_high
 
             cv = openmm.CustomCVForce('')
             cv.addGlobalParameter('lambda_interpolate', 1)
@@ -335,8 +341,18 @@ class MLPotential(object):
 
             mlSum = '+'.join(mlVarNames) if len(mlVarNames) > 0 else '0'
             mmSum = '+'.join(mmVarNames) if len(mmVarNames) > 0 else '0'
-            cv.setEnergyFunction(f'lambda_interpolate*({mlSum}) + (1-lambda_interpolate)*({mmSum})')
+            
+            # make scaling term for REST
+            scale_term = f"select(step(lambda_interpolate - 0.5), 2*lambda_interpolate*(1 - sqrt({beta_scale})) - 1 + 2*sqrt({beta_scale}), 1 - 2*lambda_interpolate*(1 - sqrt({beta_scale})))^2"
+            cv.setEnergyFunction(f'{scale_term} * (lambda_interpolate*({mlSum}) + (1-lambda_interpolate)*({mmSum}))')
             newSystem.addForce(cv)
+
+            # dummy scale force
+            # cbf = openmm.CustomBondForce(f"{scale_term}")
+            # cbf.addBond(0, 1, [])
+            # cbf.addGlobalParameter('lambda_interpolate', 1.)
+            # cbf.setForceGroup(1)
+            # newSystem.addForce(cbf)
         return newSystem
 
     def _removeBonds(self, system: openmm.System, atoms: Iterable[int], removeInSet: bool, removeConstraints: bool) -> openmm.System:
