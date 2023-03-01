@@ -243,16 +243,30 @@ class MLPotential(object):
         -------
         a newly created System object that uses this potential function to model the Topology
         """
+        # Add a `beta_scale` parameter for the REST implementation
+        kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
+        kT_high = kB * args.get('T_high', 300.*unit.kelvin)
+        kT_low = kB * args.get('T_low', 300.*unit.kelvin)
+        beta_scale = kT_low / kT_high
+        print(f"beta_scale: {beta_scale}; T_high: {args.get('T_high', 300.)}; T_low: {args.get('T_low', 300.)}")
+
         # Create the new System, removing bonded interactions within the ML subset.
 
         newSystem = self._removeBonds(system, atoms, True, removeConstraints)
 
-        # Add nonbonded exceptions and exclusions.
+        # Add nonbonded exceptions and exclusions
+        # Also, add particle parameter offsets.
 
         atomList = list(atoms)
         for force in newSystem.getForces():
             if isinstance(force, openmm.NonbondedForce):
+                force.addGlobalParameter('lambda_interRest', beta_scale)
+                # setting a beta_scale that is not `1` will trigger a new protocol fn decoration in ommtools.
                 for i in range(len(atomList)):
+                    # Here, add the particle offsets for particles in `atomList`
+                    c, s, e = force.getParticleParameters(i)
+                    _ = force.addParticleParameterOffset('lambda_interRest', i, 0., 0., e)
+
                     for j in range(i):
                         force.addException(i, j, 0, 1, 0, True)
             elif isinstance(force, openmm.CustomNonbondedForce):
@@ -268,12 +282,6 @@ class MLPotential(object):
             self._impl.addForces(topology, newSystem, atomList, forceGroup, **args)
         else:
             # Create a CustomCVForce and put the ML forces inside it.
-            kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
-            kT_high = kB * args.get('T_high', 300.*unit.kelvin)
-            kT_low = kB * args.get('T_low', 300.*unit.kelvin)
-            print(f"T_high: {args.get('T_high', 300.)}; T_low: {args.get('T_low', 300.)}")
-            beta_scale = kT_low / kT_high
-
             cv = openmm.CustomCVForce('')
             cv.addGlobalParameter('lambda_interpolate', 1)
             tempSystem = openmm.System()
