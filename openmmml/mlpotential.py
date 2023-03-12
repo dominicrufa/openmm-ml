@@ -260,12 +260,12 @@ class MLPotential(object):
         atomList = list(atoms)
         for force in newSystem.getForces():
             if isinstance(force, openmm.NonbondedForce):
-                force.addGlobalParameter('lambda_interRest', beta_scale)
+                force.addGlobalParameter('lambda_interREST', 0.)
                 # setting a beta_scale that is not `1` will trigger a new protocol fn decoration in ommtools.
                 for i in range(len(atomList)):
                     # Here, add the particle offsets for particles in `atomList`
                     c, s, e = force.getParticleParameters(i)
-                    _ = force.addParticleParameterOffset('lambda_interRest', i, 0., 0., e)
+                    _ = force.addParticleParameterOffset('lambda_interREST', i, 0., 0., e)
 
                     for j in range(i):
                         force.addException(i, j, 0, 1, 0, True)
