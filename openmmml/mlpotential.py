@@ -253,7 +253,9 @@ class MLPotential(object):
         # Create the new System, removing bonded interactions within the ML subset.
 
         newSystem = self._removeBonds(system, atoms, True, removeConstraints)
+        atomList = list(atoms)        
 
+        """
         # Add nonbonded exceptions and exclusions
         # Also, add particle parameter offsets.
 
@@ -275,6 +277,7 @@ class MLPotential(object):
                     for j in range(i):
                         if (i, j) not in existing and (j, i) not in existing:
                             force.addExclusion(i, j, True)
+        """
 
         # Add the ML potential.
 
@@ -287,10 +290,12 @@ class MLPotential(object):
             tempSystem = openmm.System()
             self._impl.addForces(topology, tempSystem, atomList, forceGroup, **args)
             mlVarNames = []
+           
             for i, force in enumerate(tempSystem.getForces()):
                 name = f'mlForce{i+1}'
                 cv.addCollectiveVariable(name, deepcopy(force))
                 mlVarNames.append(name)
+            
 
             # Create Forces for all the bonded interactions within the ML subset and add them to the CustomCVForce.
 
@@ -353,6 +358,13 @@ class MLPotential(object):
             # make scaling term for REST
             scale_term = f"select(step(lambda_interpolate - 0.5), 2*lambda_interpolate*(1 - sqrt({beta_scale})) - 1 + 2*sqrt({beta_scale}), 1 - 2*lambda_interpolate*(1 - sqrt({beta_scale})))^2"
             cv.setEnergyFunction(f'{scale_term} * (lambda_interpolate*({mlSum}) + (1-lambda_interpolate)*({mmSum}))')
+            #cv.setEnergyFunction(f'{scale_term} * (lambda_interpolate*({mmSum}) + (1-lambda_interpolate)*({mmSum}))')
+
+            # AMD; try ratios (2, 10/3, 5, 20, 80/25, 80/15, 8), all nans 
+            # amd_term = f"select(step({mlSum} - {amd_E}), 0, (({amd_E} - {mlSum})^2) / ({amd_alpha} + {amd_E} - {mlSum}));"
+            # cv.setEnergyFunction(f'{scale_term} * (lambda_interpolate*({amd_term}) + (1-lambda_interpolate)*({mmSum}))')
+
+            
             newSystem.addForce(cv)
 
             # dummy scale force
