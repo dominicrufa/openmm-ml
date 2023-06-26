@@ -185,7 +185,6 @@ class MLPotential(object):
                           removeConstraints: bool = True,
                           forceGroup: int = 0,
                           interpolate: bool = False,
-                          add_restraints: bool = True,
                           **args) -> openmm.System:
         """Create a System that is partly modeled with this potential and partly
         with a conventional force field.
@@ -253,22 +252,13 @@ class MLPotential(object):
         # Create the new System, removing bonded interactions within the ML subset.
 
         newSystem = self._removeBonds(system, atoms, True, removeConstraints)
-        atomList = list(atoms)        
 
-        """
         # Add nonbonded exceptions and exclusions
-        # Also, add particle parameter offsets.
 
         atomList = list(atoms)
         for force in newSystem.getForces():
             if isinstance(force, openmm.NonbondedForce):
-                force.addGlobalParameter('lambda_interREST', 0.)
-                # setting a beta_scale that is not `1` will trigger a new protocol fn decoration in ommtools.
                 for i in range(len(atomList)):
-                    # Here, add the particle offsets for particles in `atomList`
-                    c, s, e = force.getParticleParameters(i)
-                    _ = force.addParticleParameterOffset('lambda_interREST', i, 0., 0., e)
-
                     for j in range(i):
                         force.addException(i, j, 0, 1, 0, True)
             elif isinstance(force, openmm.CustomNonbondedForce):
@@ -277,7 +267,6 @@ class MLPotential(object):
                     for j in range(i):
                         if (i, j) not in existing and (j, i) not in existing:
                             force.addExclusion(i, j, True)
-        """
 
         # Add the ML potential.
 
@@ -289,13 +278,11 @@ class MLPotential(object):
             cv.addGlobalParameter('lambda_interpolate', 1)
             tempSystem = openmm.System()
             self._impl.addForces(topology, tempSystem, atomList, forceGroup, **args)
-            mlVarNames = []
-           
+            mlVarNames = [] 
             for i, force in enumerate(tempSystem.getForces()):
                 name = f'mlForce{i+1}'
                 cv.addCollectiveVariable(name, deepcopy(force))
                 mlVarNames.append(name)
-            
 
             # Create Forces for all the bonded interactions within the ML subset and add them to the CustomCVForce.
 
@@ -358,21 +345,8 @@ class MLPotential(object):
             # make scaling term for REST
             scale_term = f"select(step(lambda_interpolate - 0.5), 2*lambda_interpolate*(1 - sqrt({beta_scale})) - 1 + 2*sqrt({beta_scale}), 1 - 2*lambda_interpolate*(1 - sqrt({beta_scale})))^2"
             cv.setEnergyFunction(f'{scale_term} * (lambda_interpolate*({mlSum}) + (1-lambda_interpolate)*({mmSum}))')
-            #cv.setEnergyFunction(f'{scale_term} * (lambda_interpolate*({mmSum}) + (1-lambda_interpolate)*({mmSum}))')
-
-            # AMD; try ratios (2, 10/3, 5, 20, 80/25, 80/15, 8), all nans 
-            # amd_term = f"select(step({mlSum} - {amd_E}), 0, (({amd_E} - {mlSum})^2) / ({amd_alpha} + {amd_E} - {mlSum}));"
-            # cv.setEnergyFunction(f'{scale_term} * (lambda_interpolate*({amd_term}) + (1-lambda_interpolate)*({mmSum}))')
-
-            
             newSystem.addForce(cv)
 
-            # dummy scale force
-            # cbf = openmm.CustomBondForce(f"{scale_term}")
-            # cbf.addBond(0, 1, [])
-            # cbf.addGlobalParameter('lambda_interpolate', 1.)
-            # cbf.setForceGroup(1)
-            # newSystem.addForce(cbf)
         return newSystem
 
     def _removeBonds(self, system: openmm.System, atoms: Iterable[int], removeInSet: bool, removeConstraints: bool) -> openmm.System:
