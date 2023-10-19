@@ -242,11 +242,18 @@ class MLPotential(object):
         -------
         a newly created System object that uses this potential function to model the Topology
         """
+        # Add a `beta_scale` parameter for the REST implementation
+        kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
+        kT_high = kB * args.get('T_high', 300.*unit.kelvin)
+        kT_low = kB * args.get('T_low', 300.*unit.kelvin)
+        beta_scale = kT_low / kT_high
+        print(f"beta_scale: {beta_scale}; T_high: {args.get('T_high', 300.)}; T_low: {args.get('T_low', 300.)}")
+
         # Create the new System, removing bonded interactions within the ML subset.
 
         newSystem = self._removeBonds(system, atoms, True, removeConstraints)
 
-        # Add nonbonded exceptions and exclusions.
+        # Add nonbonded exceptions and exclusions
 
         atomList = list(atoms)
         for force in newSystem.getForces():
@@ -267,12 +274,11 @@ class MLPotential(object):
             self._impl.addForces(topology, newSystem, atomList, forceGroup, **args)
         else:
             # Create a CustomCVForce and put the ML forces inside it.
-
             cv = openmm.CustomCVForce('')
             cv.addGlobalParameter('lambda_interpolate', 1)
             tempSystem = openmm.System()
             self._impl.addForces(topology, tempSystem, atomList, forceGroup, **args)
-            mlVarNames = []
+            mlVarNames = [] 
             for i, force in enumerate(tempSystem.getForces()):
                 name = f'mlForce{i+1}'
                 cv.addCollectiveVariable(name, deepcopy(force))
@@ -335,8 +341,12 @@ class MLPotential(object):
 
             mlSum = '+'.join(mlVarNames) if len(mlVarNames) > 0 else '0'
             mmSum = '+'.join(mmVarNames) if len(mmVarNames) > 0 else '0'
-            cv.setEnergyFunction(f'lambda_interpolate*({mlSum}) + (1-lambda_interpolate)*({mmSum})')
+            
+            # make scaling term for REST
+            scale_term = f"select(step(lambda_interpolate - 0.5), 2*lambda_interpolate*(1 - sqrt({beta_scale})) - 1 + 2*sqrt({beta_scale}), 1 - 2*lambda_interpolate*(1 - sqrt({beta_scale})))^2"
+            cv.setEnergyFunction(f'{scale_term} * (lambda_interpolate*({mlSum}) + (1-lambda_interpolate)*({mmSum}))')
             newSystem.addForce(cv)
+
         return newSystem
 
     def _removeBonds(self, system: openmm.System, atoms: Iterable[int], removeInSet: bool, removeConstraints: bool) -> openmm.System:
